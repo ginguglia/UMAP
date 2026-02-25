@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>UMAP Latent Space — GW Autoencoder</title>
+<script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&display=swap');
+
+  :root {
+    --bg: #080c14;
+    --panel: #0e1420;
+    --border: rgba(255,255,255,0.06);
+    --noise-col: #4aaeff;
+    --signal-col: #ff6b35;
+    --glitch-col: #b44fff;
+    --glitch2-col: #ff2e6b;
+    --glitch3-col: #ffcc00;
+    --text: #e2e8f0;
+    --muted: #64748b;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Animated grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(74,174,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(74,174,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container {
+    position: relative;
+    z-index: 1;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 28px 20px;
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    gap: 18px;
+  }
+
+  header {
+    grid-column: 1 / -1;
+    margin-bottom: 4px;
+  }
+
+  .title-tag {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--noise-col);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    opacity: 0.8;
+  }
+
+  h1 {
+    font-size: clamp(22px, 3vw, 32px);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    background: linear-gradient(135deg, #e2e8f0 0%, #94a3b8 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 6px;
+  }
+
+  .subtitle {
+    font-size: 13px;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    letter-spacing: 0.02em;
+  }
+
+  /* Sidebar */
+  .sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 16px;
+  }
+
+  .card-title {
+    font-size: 11px;
+    font-family: 'DM Mono', monospace;
+    color: var(--muted);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+
+  /* Legend items */
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    margin-bottom: 8px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .legend-item:hover { border-color: rgba(255,255,255,0.1); background: rgba(255,255,255,0.03); }
+  .legend-item.active { border-color: rgba(255,255,255,0.12); background: rgba(255,255,255,0.04); }
+
+  .legend-dot {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    box-shadow: 0 0 8px currentColor;
+  }
+
+  .legend-info { flex: 1; }
+  .legend-name { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+  .legend-desc { font-size: 11px; color: var(--muted); line-height: 1.4; font-family: 'DM Mono', monospace; }
+
+  /* Stats */
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .stat-row:last-child { border-bottom: none; }
+  .stat-label { font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; }
+  .stat-value { font-size: 13px; font-weight: 600; font-family: 'DM Mono', monospace; }
+
+  /* Controls */
+  .ctrl-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+  .ctrl-label { font-size: 12px; color: var(--muted); font-family: 'DM Mono', monospace; }
+  .ctrl-value { font-size: 12px; color: var(--text); font-family: 'DM Mono', monospace; }
+
+  input[type="range"] {
+    width: 100%;
+    -webkit-appearance: none;
+    height: 3px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 3px;
+    outline: none;
+    margin-bottom: 14px;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: var(--noise-col);
+    cursor: pointer;
+    box-shadow: 0 0 6px var(--noise-col);
+  }
+
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  button {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    padding: 7px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,0.04);
+    color: var(--text);
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 0.05em;
+  }
+  button:hover { border-color: var(--noise-col); color: var(--noise-col); }
+  button.primary {
+    background: rgba(74,174,255,0.12);
+    border-color: rgba(74,174,255,0.3);
+    color: var(--noise-col);
+  }
+
+  /* Plot area */
+  .plot-wrap {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  #plot { width: 100%; height: 520px; }
+
+  /* Interpretation panel */
+  .interp {
+    background: rgba(74,174,255,0.04);
+    border: 1px solid rgba(74,174,255,0.12);
+    border-radius: 10px;
+    padding: 12px 16px;
+    font-size: 12px;
+    font-family: 'DM Mono', monospace;
+    color: var(--muted);
+    line-height: 1.7;
+  }
+  .interp strong { color: var(--text); }
+
+  /* Reconstruction error bar */
+  .rec-bars { display: flex; flex-direction: column; gap: 8px; }
+  .rec-item { display: flex; align-items: center; gap: 10px; }
+  .rec-label { font-size: 11px; font-family: 'DM Mono', monospace; color: var(--muted); width: 80px; flex-shrink: 0; }
+  .rec-bar-wrap { flex: 1; height: 8px; background: rgba(255,255,255,0.06); border-radius: 4px; overflow: hidden; }
+  .rec-bar { height: 100%; border-radius: 4px; transition: width 0.5s ease; }
+  .rec-val { font-size: 11px; font-family: 'DM Mono', monospace; width: 36px; text-align: right; }
+
+  @media (max-width: 800px) {
+    .container { grid-template-columns: 1fr; }
+    header { margin-bottom: 0; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div class="title-tag">// MADGRAV · Illustrative Example</div>
+    <h1>UMAP Latent Space Projection<br>Convolutional Autoencoder</h1>
+    <p class="subtitle">Synthetic data · 3D embedding · Noise / GW Signal / Glitch families</p>
+  </header>
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+
+    <div class="card">
+      <div class="card-title">// Class Legend</div>
+
+      <div class="legend-item active" data-class="noise">
+        <div class="legend-dot" style="background:var(--noise-col);color:var(--noise-col)"></div>
+        <div class="legend-info">
+          <div class="legend-name" style="color:var(--noise-col)">Detector Noise</div>
+          <div class="legend-desc">Trained distribution. Tight central cluster, low reconstruction error.</div>
+        </div>
+      </div>
+
+      <div class="legend-item active" data-class="signal">
+        <div class="legend-dot" style="background:var(--signal-col);color:var(--signal-col)"></div>
+        <div class="legend-info">
+          <div class="legend-name" style="color:var(--signal-col)">GW Signal (IMBH)</div>
+          <div class="legend-desc">Peripheral cluster. Higher SNR → further from noise core.</div>
+        </div>
+      </div>
+
+      <div class="legend-item active" data-class="blip">
+        <div class="legend-dot" style="background:var(--glitch-col);color:var(--glitch-col)"></div>
+        <div class="legend-info">
+          <div class="legend-name" style="color:var(--glitch-col)">Blip Glitches</div>
+          <div class="legend-desc">Short-duration, impulsive. Separate locus from signals.</div>
+        </div>
+      </div>
+
+      <div class="legend-item active" data-class="scatlight">
+        <div class="legend-dot" style="background:var(--glitch2-col);color:var(--glitch2-col)"></div>
+        <div class="legend-info">
+          <div class="legend-name" style="color:var(--glitch2-col)">Scattered Light</div>
+          <div class="legend-desc">Arch-shaped TF morphology. Distinct sub-cluster.</div>
+        </div>
+      </div>
+
+      <div class="legend-item active" data-class="koi">
+        <div class="legend-dot" style="background:var(--glitch3-col);color:var(--glitch3-col)"></div>
+        <div class="legend-info">
+          <div class="legend-name" style="color:var(--glitch3-col)">Koi Fish / Tomte</div>
+          <div class="legend-desc">Danger zone: partial overlap with GW signal locus.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">// Reconstruction Error</div>
+      <div class="rec-bars">
+        <div class="rec-item">
+          <div class="rec-label">Noise</div>
+          <div class="rec-bar-wrap"><div class="rec-bar" style="width:12%;background:var(--noise-col)"></div></div>
+          <div class="rec-val" style="color:var(--noise-col)">0.04</div>
+        </div>
+        <div class="rec-item">
+          <div class="rec-label">GW Signal</div>
+          <div class="rec-bar-wrap"><div class="rec-bar" style="width:82%;background:var(--signal-col)"></div></div>
+          <div class="rec-val" style="color:var(--signal-col)">0.71</div>
+        </div>
+        <div class="rec-item">
+          <div class="rec-label">Blip</div>
+          <div class="rec-bar-wrap"><div class="rec-bar" style="width:55%;background:var(--glitch-col)"></div></div>
+          <div class="rec-val" style="color:var(--glitch-col)">0.48</div>
+        </div>
+        <div class="rec-item">
+          <div class="rec-label">Scat. Light</div>
+          <div class="rec-bar-wrap"><div class="rec-bar" style="width:45%;background:var(--glitch2-col)"></div></div>
+          <div class="rec-val" style="color:var(--glitch2-col)">0.39</div>
+        </div>
+        <div class="rec-item">
+          <div class="rec-label">Koi / Tomte</div>
+          <div class="rec-bar-wrap"><div class="rec-bar" style="width:68%;background:var(--glitch3-col)"></div></div>
+          <div class="rec-val" style="color:var(--glitch3-col)">0.59</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">// Display Controls</div>
+
+      <div class="ctrl-row">
+        <span class="ctrl-label">View</span>
+        <span class="ctrl-value" id="viewVal">UMAP</span>
+      </div>
+
+
+      <div class="ctrl-row">
+        <span class="ctrl-label">Point size</span>
+        <span class="ctrl-value" id="sizeVal">5</span>
+      </div>
+      <input type="range" id="sizeSlider" min="2" max="10" value="5">
+
+      <div class="ctrl-row">
+        <span class="ctrl-label">Opacity</span>
+        <span class="ctrl-value" id="opacVal">0.85</span>
+      </div>
+      <input type="range" id="opacSlider" min="20" max="100" value="85">
+
+      <div class="btn-row">
+        <button class="primary" onclick="resetCamera()">Reset view</button>
+        <button onclick="toggleView()">Toggle latent/UMAP</button>
+        <button onclick="toggleNoise()">Toggle noise</button>
+        <button onclick="regenerate()">Regenerate</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">// Sample Stats</div>
+      <div class="stat-row">
+        <span class="stat-label">Noise samples</span>
+        <span class="stat-value" style="color:var(--noise-col)">600</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">GW signals</span>
+        <span class="stat-value" style="color:var(--signal-col)">80</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Blip glitches</span>
+        <span class="stat-value" style="color:var(--glitch-col)">120</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Scat. light</span>
+        <span class="stat-value" style="color:var(--glitch2-col)">100</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Koi / Tomte</span>
+        <span class="stat-value" style="color:var(--glitch3-col)">70</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Plot -->
+  <div class="plot-wrap">
+    <div id="plot"></div>
+    <div class="interp">
+      <strong>How to read this:</strong> The autoencoder is trained exclusively on detector noise.
+      Noise samples (blue) occupy a <strong>tight central cluster</strong> — the learned manifold.
+      GW signals (orange) are pushed to the <strong>periphery</strong> as anomalies; higher-SNR events sit further out.
+      Glitch families form <strong>distinct sub-clusters</strong> in different peripheral region<script>
+// ---- Seeded PRNG for reproducibility ----
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    var t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  }
+}
+
+let rng = mulberry32(42);
+function randn() {
+  let u = 0, v = 0;
+  while(u === 0) u = rng();
+  while(v === 0) v = rng();
+  return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+}
+function randnScaled(mean, std) { return mean + randn() * std; }
+
+// ---- Synthetic CVAE-like latent vectors (8D) + illustrative UMAP projection (3D) ----
+const LATENT_DIM = 8;
+
+// Fixed random projection matrix (8 x 3) for a deterministic, UMAP-like non-linear mapping.
+// (This is illustrative; in real work you would run UMAP on the latent vectors.)
+const W = [
+  [ 0.82, -0.15,  0.33],
+  [-0.41,  0.77,  0.28],
+  [ 0.12,  0.54, -0.80],
+  [ 0.63,  0.09,  0.51],
+  [-0.22, -0.68,  0.49],
+  [ 0.05,  0.31,  0.71],
+  [ 0.44, -0.52, -0.19],
+  [-0.59, -0.08,  0.37],
+];
+
+function dot8x3(z) {
+  const y = [0,0,0];
+  for (let i=0;i<LATENT_DIM;i++) {
+    y[0] += z[i] * W[i][0];
+    y[1] += z[i] * W[i][1];
+    y[2] += z[i] * W[i][2];
+  }
+  return y;
+}
+
+// A deterministic "UMAP-like" projection: random projection + mild nonlinearity + scale.
+function umapProject(z) {
+  let y = dot8x3(z);
+  // Nonlinear couplings to mimic manifold unfolding
+  y[0] += 0.22 * (z[3] * z[4]);
+  y[1] += 0.18 * (z[5] * z[6]);
+  y[2] += 0.16 * (z[1] * z[7]);
+  // squashing + rescale
+  y = [Math.tanh(y[0]) * 6.0, Math.tanh(y[1]) * 6.0, Math.tanh(y[2]) * 5.0];
+  return y;
+}
+
+// ---- Generate synthetic class-conditional latent vectors + metadata ----
+function generateData(seed) {
+  rng = mulberry32(seed !== undefined ? seed : 42);
+
+  const data = { noise:[], signal:[], blip:[], scatlight:[], koi:[] };
+
+  // Helper: build an 8D vector with given mean/std for first 3 dims, tiny noise elsewhere
+  function makeZ(mu3, sd3) {
+    const z = new Array(LATENT_DIM).fill(0);
+    for (let d=0; d<3; d++) z[d] = randnScaled(mu3[d], sd3[d]);
+    // remaining dims: small residual structure
+    for (let d=3; d<LATENT_DIM; d++) z[d] = randnScaled(0, 0.25);
+    return z;
+  }
+
+  // NOISE — tight ellipsoid around origin in latent space
+  for(let i=0;i<600;i++) {
+    const z = makeZ([0,0,0],[0.95,0.75,0.85]);
+    data.noise.push({ z, meta:{ cls:'noise', rec:0.04, snr:null } });
+  }
+
+  // GW SIGNALS — shifted in latent space with an SNR proxy stretching along one axis
+  for(let i=0;i<80;i++) {
+    const snr = 0.3 + rng() * 0.7;          // proxy in [0.3,1.0]
+    const shift = 3.0 + snr * 3.2;
+    const z = makeZ([shift, -1.6, 1.0 + snr*1.7],[0.70,0.80,0.60]);
+    // Put additional structure into higher dims (CVAE latent signature)
+    z[3] += 0.6*snr; z[4] -= 0.4*snr; z[6] += 0.25;
+    data.signal.push({ z, meta:{ cls:'signal', rec:0.55 + 0.20*snr, snr:(8 + 20*snr) } });
+  }
+
+  // BLIP GLITCHES — separate locus
+  for(let i=0;i<120;i++) {
+    const z = makeZ([-3.6, 2.9, -0.6],[0.85,0.65,0.55]);
+    z[5] += 0.4; z[7] -= 0.2;
+    data.blip.push({ z, meta:{ cls:'blip', rec:0.48, snr:null } });
+  }
+
+  // SCATTERED LIGHT — another distinct locus
+  for(let i=0;i<100;i++) {
+    const z = makeZ([-1.6, -3.6, -2.1],[0.70,0.85,0.55]);
+    z[4] += 0.3; z[6] -= 0.3;
+    data.scatlight.push({ z, meta:{ cls:'scatlight', rec:0.39, snr:null } });
+  }
+
+  // KOI / TOMTE — partial overlap with signals (danger zone)
+  for(let i=0;i<70;i++) {
+    const overlap = rng() > 0.45;
+    let z;
+    if(overlap) {
+      z = makeZ([3.6, -0.8, 1.8],[1.15,0.95,0.95]);
+      z[3] += 0.25; z[5] += 0.25;
+    } else {
+      z = makeZ([2.0, 1.6, 0.5],[0.80,0.70,0.70]);
+      z[4] -= 0.25; z[6] += 0.15;
+    }
+    data.koi.push({ z, meta:{ cls:'koi', rec:0.59, snr:null } });
+  }
+
+  return data;
+}
+
+// ---- Projection helpers ----
+let currentData = generateData(42);
+let currentMode = 'umap'; // 'umap' or 'latent'
+let showNoise = true;
+let currentSize = 5;
+let currentOpac = 0.85;
+
+function projectPoint(p) {
+  const z = p.z;
+  if (currentMode === 'latent') return [z[0], z[1], z[2]];
+  return umapProject(z);
+}
+
+function projectClass(arr) {
+  return arr.map(projectPoint);
+}
+
+// ---- Decision boundary: an illustrative ellipsoid around the noise manifold ----
+function boundaryMeshFromPoints(pts3, k=2.6) {
+  // pts3: array of [x,y,z]
+  const n = pts3.length;
+  let mx=0,my=0,mz=0;
+  for (const p of pts3) { mx+=p[0]; my+=p[1]; mz+=p[2]; }
+  mx/=n; my/=n; mz/=n;
+
+  let vx=0,vy=0,vz=0;
+  for (const p of pts3) {
+    vx += (p[0]-mx)*(p[0]-mx);
+    vy += (p[1]-my)*(p[1]-my);
+    vz += (p[2]-mz)*(p[2]-mz);
+  }
+  vx/=n; vy/=n; vz/=n;
+
+  const rx = Math.max(0.01, k*Math.sqrt(vx));
+  const ry = Math.max(0.01, k*Math.sqrt(vy));
+  const rz = Math.max(0.01, k*Math.sqrt(vz));
+
+  const nu = 20, nv = 28;
+  const X=[], Y=[], Z=[];
+  const I=[], J=[], K=[];
+  // Create vertices
+  for (let iu=0; iu<=nu; iu++) {
+    const u = Math.PI * (iu/nu); // 0..pi
+    for (let iv=0; iv<=nv; iv++) {
+      const v = 2*Math.PI * (iv/nv); // 0..2pi
+      const x = mx + rx * Math.sin(u) * Math.cos(v);
+      const y = my + ry * Math.sin(u) * Math.sin(v);
+      const z = mz + rz * Math.cos(u);
+      X.push(x); Y.push(y); Z.push(z);
+    }
+  }
+  // Create faces (two triangles per quad)
+  const row = nv + 1;
+  for (let iu=0; iu<nu; iu++) {
+    for (let iv=0; iv<nv; iv++) {
+      const a = iu*row + iv;
+      const b = a + 1;
+      const c = (iu+1)*row + iv;
+      const d = c + 1;
+      I.push(a); J.push(c); K.push(b);
+      I.push(b); J.push(c); K.push(d);
+    }
+  }
+  return {X,Y,Z,I,J,K};
+}
+
+// ---- Build Plotly traces ----
+function makeTraces(d, size, opac) {
+  const traces = [];
+
+  function makeTrace(objs, name, color, sym, show) {
+    const pts = projectClass(objs);
+    const xs = pts.map(p=>p[0]);
+    const ys = pts.map(p=>p[1]);
+    const zs = pts.map(p=>p[2]);
+
+    return {
+      type: 'scatter3d',
+      mode: 'markers',
+      name,
+      visible: show ? true : 'legendonly',
+      x: xs, y: ys, z: zs,
+      marker: { size, color, opacity: opac, symbol: sym, line: { width: 0 } },
+      customdata: objs.map(o => o.meta),
+      hovertemplate:
+        `<b>${name}</b>` +
+        `<br>x: %{x:.2f}<br>y: %{y:.2f}<br>z: %{z:.2f}` +
+        `<br>recon: %{customdata.rec:.2f}` +
+        `<br>%{customdata.snr|SNR: %{customdata.snr:.1f}}` +
+        `<extra></extra>`
+    };
+  }
+
+  // Decision boundary around noise manifold (computed in current projection)
+  const noisePts = projectClass(d.noise);
+  const mesh = boundaryMeshFromPoints(noisePts, 2.6);
+  traces.push({
+    type: 'mesh3d',
+    name: 'Noise boundary',
+    x: mesh.X, y: mesh.Y, z: mesh.Z,
+    i: mesh.I, j: mesh.J, k: mesh.K,
+    color: '#4aaeff',
+    opacity: 0.12,
+    hoverinfo: 'skip',
+    showscale: false
+  });
+
+  if(showNoise) traces.push(makeTrace(d.noise, 'Detector Noise', '#4aaeff', 'circle', true));
+  traces.push(makeTrace(d.signal, 'GW Signal (IMBH)', '#ff6b35', 'diamond', true));
+  traces.push(makeTrace(d.blip,   'Blip Glitches',    '#b44fff', 'square', true));
+  traces.push(makeTrace(d.scatlight,'Scattered Light', '#ff2e6b', 'cross', true));
+  traces.push(makeTrace(d.koi,    'Koi/Tomte Glitches','#ffcc00', 'circle-open', true));
+
+  return traces;
+}
+
+function axisTitle(base) {
+  return currentMode === 'latent' ? `Latent-${base}` : `UMAP-${base}`;
+}
+
+function makeLayout() {
+  return {
+    paper_bgcolor: 'rgba(0,0,0,0)',
+    plot_bgcolor:  'rgba(0,0,0,0)',
+    margin: {l:0,r:0,t:10,b:0},
+    scene: {
+      bgcolor: 'rgba(0,0,0,0)',
+      xaxis: {
+        title: axisTitle('1'),
+        gridcolor: 'rgba(255,255,255,0.06)',
+        zerolinecolor: 'rgba(255,255,255,0.1)',
+        tickfont: {color:'#64748b', size:9},
+        titlefont: {color:'#94a3b8', size:11, family:'DM Mono'}
+      },
+      yaxis: {
+        title: axisTitle('2'),
+        gridcolor: 'rgba(255,255,255,0.06)',
+        zerolinecolor: 'rgba(255,255,255,0.1)',
+        tickfont: {color:'#64748b', size:9},
+        titlefont: {color:'#94a3b8', size:11, family:'DM Mono'}
+      },
+      zaxis: {
+        title: axisTitle('3'),
+        gridcolor: 'rgba(255,255,255,0.06)',
+        zerolinecolor: 'rgba(255,255,255,0.1)',
+        tickfont: {color:'#64748b', size:9},
+        titlefont: {color:'#94a3b8', size:11, family:'DM Mono'}
+      },
+      camera: { eye: {x:1.5, y:1.5, z:0.8} }
+    },
+    legend: {
+      font: {color:'#94a3b8', size:11, family:'DM Mono'},
+      bgcolor: 'rgba(14,20,32,0.8)',
+      bordercolor: 'rgba(255,255,255,0.08)',
+      borderwidth: 1,
+      x: 0.01, y: 0.98
+    },
+    font: {color:'#e2e8f0', family:'Syne'}
+  };
+}
+
+const config = {
+  responsive: true,
+  displaylogo: false,
+  modeBarButtonsToRemove: ['resetCameraLastSave3d']
+};
+
+let layout = makeLayout();
+Plotly.newPlot('plot', makeTraces(currentData, currentSize, currentOpac), layout, config);
+
+// ---- Controls ----
+function refreshPlot(keepCamera=true) {
+  const gd = document.getElementById('plot');
+  const cam = keepCamera && gd && gd.layout && gd.layout.scene ? gd.layout.scene.camera : null;
+  layout = makeLayout();
+  if (cam) layout.scene.camera = cam;
+  Plotly.react('plot', makeTraces(currentData, currentSize, currentOpac), layout, config);
+  document.getElementById('viewVal').textContent = (currentMode === 'latent') ? 'Latent' : 'UMAP';
+}
+
+document.getElementById('sizeSlider').addEventListener('input', function() {
+  currentSize = parseInt(this.value);
+  document.getElementById('sizeVal').textContent = currentSize;
+  refreshPlot(true);
+});
+
+document.getElementById('opacSlider').addEventListener('input', function() {
+  currentOpac = parseInt(this.value) / 100;
+  document.getElementById('opacVal').textContent = currentOpac.toFixed(2);
+  refreshPlot(true);
+});
+
+function resetCamera() {
+  Plotly.relayout('plot', {'scene.camera': {eye: {x:1.5, y:1.5, z:0.8}}});
+}
+
+function toggleNoise() {
+  showNoise = !showNoise;
+  refreshPlot(true);
+}
+
+function toggleView() {
+  currentMode = (currentMode === 'umap') ? 'latent' : 'umap';
+  refreshPlot(false);
+}
+
+function regenerate() {
+  currentData = generateData(Date.now() & 0xffffffff);
+  refreshPlot(false);
+}
+
+// initialize view label
+document.getElementById('viewVal').textContent = (currentMode === 'latent') ? 'Latent' : 'UMAP';
+</script>urrentOpac), layout, config);
+}
+
+function regenerate() {
+  currentData = generateData(Date.now() & 0xffffffff);
+  Plotly.react('plot', makeTraces(currentData, currentSize, currentOpac), layout, config);
+}
+</script>
+</body>
+</html>
