@@ -490,22 +490,15 @@ function generateData(seed) {
     data.scatlight.push({ z, meta:{ cls:'scatlight', rec:0.39, snr:null } });
   }
 
-// KOI FISH / TOMTE — near-signal but displaced
+// KOI FISH / TOMTE — separated from signal manifold
 for(let i=0;i<70;i++) {
 
-  const overlap = rng() > 0.45;
+  let z = makeZ([6.5, 2.5, 3.5],[0.6, 0.6, 0.6]);
 
-  let z;
-
-  if(overlap) {
-    z = makeZ([4.5, 0.3, 2.5],[0.9, 0.8, 0.7]);
-  } else {
-    z = makeZ([2.5, 2.0, 1.2],[0.7, 0.6, 0.6]);
-  }
-
-  // small latent structure deformation (optional realism)
-  z[3] += 0.4;
-  z[5] -= 0.2;
+  // structured latent anisotropy
+  z[3] += 0.8;
+  z[4] -= 0.5;
+  z[6] += 0.6;
 
   data.koi.push({
     z,
