@@ -490,19 +490,25 @@ function generateData(seed) {
     data.scatlight.push({ z, meta:{ cls:'scatlight', rec:0.39, snr:null } });
   }
 
-  // KOI / TOMTE — partial overlap with signals (danger zone)
-  for(let i=0;i<70;i++) {
-    const overlap = rng() > 0.45;
-    let z;
-    if(overlap) {
-      z = makeZ([3.6, -0.8, 1.8],[1.15,0.95,0.95]);
-      z[3] += 0.25; z[5] += 0.25;
-    } else {
-      z = makeZ([2.0, 1.6, 0.5],[0.80,0.70,0.70]);
-      z[4] -= 0.25; z[6] += 0.15;
-    }
-    data.koi.push({ z, meta:{ cls:'koi', rec:0.59, snr:null } });
+// KOI FISH / TOMTE — near-signal but displaced
+for(let i=0;i<70;i++) {
+
+  const overlap = rng() > 0.45;
+
+  if(overlap) {
+    data.koi.push([
+      randnScaled(4.5, 0.9),
+      randnScaled(0.3, 0.8),
+      randnScaled(2.5, 0.7)
+    ]);
+  } else {
+    data.koi.push([
+      randnScaled(2.5, 0.7),
+      randnScaled(2.0, 0.6),
+      randnScaled(1.2, 0.6)
+    ]);
   }
+}
 
   return data;
 }
